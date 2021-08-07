@@ -52,32 +52,35 @@ func main() {
 		panic(err)
 	}
 
+	figis := make(map[string]bool)
+
+	for _, instr := range instruments {
+		figis[instr.FIGI] = true
+	}
+
 	sold := 0.0
 	bought := 0.0
 	count := 0
 
 	var currency string
 
-	for _, instr := range instruments {
-		operations, err := client.Operations(ctx, sdk.DefaultAccount, from, to, instr.FIGI)
-		if err != nil {
-			panic(err)
+	for _, op := range operations {
+		if !figis[op.FIGI] {
+			continue
 		}
 
-		for _, op := range operations {
-			if op.Status != sdk.OperationStatusDone {
-				continue
-			}
+		if op.Status != sdk.OperationStatusDone {
+			continue
+		}
 
-			if op.OperationType == sdk.BUY {
-				currency = string(op.Currency)
-				count += op.Quantity
-				bought += op.Payment + op.Commission.Value
-			} else if op.OperationType == sdk.SELL {
-				currency = string(op.Currency)
-				count -= op.Quantity
-				sold += op.Payment + op.Commission.Value
-			}
+		if op.OperationType == sdk.BUY {
+			currency = string(op.Currency)
+			count += op.Quantity
+			bought += op.Payment + op.Commission.Value
+		} else if op.OperationType == sdk.SELL {
+			currency = string(op.Currency)
+			count -= op.Quantity
+			sold += op.Payment + op.Commission.Value
 		}
 	}
 
