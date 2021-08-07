@@ -116,8 +116,10 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 	fmt.Printf("Продано на сумму (с учётом комиссий): %0.2f %s\n", sold, currency)
 	fmt.Printf("Куплено на сумму (с учётом комиссий): %0.2f %s\n", bought, currency)
 
-	sumFull := bought + sold + marginFullComission/74
-	sumPredicted := bought + sold + marginPredictedComission/74
+	candle := pr.getCurrencyCandle(currency, to)
+
+	sumFull := bought + sold + marginFullComission/candle.ClosePrice
+	sumPredicted := bought + sold + marginPredictedComission/candle.ClosePrice
 
 	fmt.Printf("Остаток суммы (с учётом полной маржинальной комиссии): %0.2f %s\n", sumFull, currency)
 	fmt.Printf(
