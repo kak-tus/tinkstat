@@ -65,7 +65,11 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 	marginFullComission := 0.0
 	marginPredictedComission := 0.0
 
-	var currency string
+	var (
+		currency                  string
+		tickerFigi                string
+		predictedComissionPercent float64
+	)
 
 	for _, op := range operations {
 		switch op.OperationType {
@@ -79,6 +83,8 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 			}
 
 			currency = string(op.Currency)
+			tickerFigi = op.FIGI
+			predictedComissionPercent = op.Commission.Value * 100 / op.Payment
 
 			if op.OperationType == sdk.BUY {
 				count += op.Quantity
@@ -141,6 +147,18 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 			sumPredicted/math.Abs(float64(count)),
 			currency,
 		)
+		fmt.Printf(
+			"Купить акции не дороже (комиссия %0.2f%%): %0.2f %s\n",
+			predictedComissionPercent,
+			sumFull/math.Abs(float64(count))/(1+predictedComissionPercent/100),
+			currency,
+		)
+		fmt.Printf(
+			"Купить акции не дороже (комиссия %0.2f%%, маржинальная прогнозная): %0.2f %s\n",
+			predictedComissionPercent,
+			sumPredicted/math.Abs(float64(count))/(1+predictedComissionPercent/100),
+			currency,
+		)
 	} else if count > 0 {
 		fmt.Printf(
 			"Продать акции не дешевле (без учёта комиссии): %0.2f %s\n",
@@ -152,6 +170,96 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 			sumPredicted/math.Abs(float64(count)),
 			currency,
 		)
+		fmt.Printf(
+			"Продать акции не дешевле (комиссия %0.2f%%): %0.2f %s\n",
+			predictedComissionPercent,
+			sumFull/math.Abs(float64(count))/(1+predictedComissionPercent/100),
+			currency,
+		)
+		fmt.Printf(
+			"Продать акции не дешевле (комиссия %0.2f%%, маржинальная прогнозная): %0.2f %s\n",
+			predictedComissionPercent,
+			sumPredicted/math.Abs(float64(count))/(1+predictedComissionPercent/100),
+			currency,
+		)
+	}
+
+	if count != 0 {
+		candle := pr.getCandle(tickerFigi, time.Now())
+
+		incomeFull := sumFull + candle.ClosePrice*float64(count)
+		incomePredicted := sumPredicted + candle.ClosePrice*float64(count)
+		incomeFullComission := incomeFull - candle.ClosePrice*math.Abs(float64(count))*(predictedComissionPercent/100)
+		incomePredictedComission := incomePredicted -
+			candle.ClosePrice*math.Abs(float64(count))*(predictedComissionPercent/100)
+
+		if incomeFull > 0 {
+			fmt.Printf(
+				"Доход, если продать сейчас по %0.2f (без учёта комиссии): %0.2f %s\n",
+				candle.ClosePrice,
+				incomeFull,
+				currency,
+			)
+		} else {
+			fmt.Printf(
+				"Убыток, если продать сейчас по %0.2f (без учёта комиссии): %0.2f %s\n",
+				candle.ClosePrice,
+				incomeFull,
+				currency,
+			)
+		}
+
+		if incomePredicted > 0 {
+			fmt.Printf(
+				"Доход, если продать сейчас по %0.2f (без учёта комиссии, маржинальная прогнозная): %0.2f %s\n",
+				candle.ClosePrice,
+				incomePredicted,
+				currency,
+			)
+		} else {
+			fmt.Printf(
+				"Убыток, если продать сейчас по %0.2f (без учёта комиссии, маржинальная прогнозная): %0.2f %s\n",
+				candle.ClosePrice,
+				incomePredicted,
+				currency,
+			)
+		}
+
+		if incomeFullComission > 0 {
+			fmt.Printf(
+				"Доход, если продать сейчас по %0.2f (комиссия %0.2f%%): %0.2f %s\n",
+				candle.ClosePrice,
+				predictedComissionPercent,
+				incomeFullComission,
+				currency,
+			)
+		} else {
+			fmt.Printf(
+				"Убыток, если продать сейчас по %0.2f (комиссия %0.2f%%): %0.2f %s\n",
+				candle.ClosePrice,
+				predictedComissionPercent,
+				incomeFullComission,
+				currency,
+			)
+		}
+
+		if incomePredictedComission > 0 {
+			fmt.Printf(
+				"Доход, если продать сейчас по %0.2f (комиссия %0.2f%%, маржинальная прогнозная): %0.2f %s\n",
+				candle.ClosePrice,
+				predictedComissionPercent,
+				incomePredictedComission,
+				currency,
+			)
+		} else {
+			fmt.Printf(
+				"Убыток, если продать сейчас по %0.2f (комиссия %0.2f%%, маржинальная прогнозная): %0.2f %s\n",
+				candle.ClosePrice,
+				predictedComissionPercent,
+				incomePredictedComission,
+				currency,
+			)
+		}
 	}
 
 	pr.cancel()
