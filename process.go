@@ -104,7 +104,7 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 				continue
 			}
 
-			candle := pr.getCurrencyCandle(currency, op.DateTime)
+			candle := pr.searchCurrencyCandle(currency, op.DateTime)
 
 			sum := bought + sold
 
@@ -122,7 +122,7 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 	fmt.Printf("Продано на сумму (с учётом комиссий): %0.2f %s\n", sold, currency)
 	fmt.Printf("Куплено на сумму (с учётом комиссий): %0.2f %s\n", bought, currency)
 
-	candle := pr.getCurrencyCandle(currency, to)
+	candle := pr.searchCurrencyCandle(currency, to)
 
 	sumFull := bought + sold + marginFullComission/candle.ClosePrice
 	sumPredicted := bought + sold + marginPredictedComission/candle.ClosePrice
@@ -185,7 +185,7 @@ func (pr *processor) process(from, to time.Time, ticker string) {
 	}
 
 	if count != 0 {
-		candle := pr.getCandle(tickerFigi, time.Now())
+		candle := pr.searchCandle(tickerFigi, time.Now())
 
 		incomeFull := sumFull + candle.ClosePrice*float64(count)
 		incomePredicted := sumPredicted + candle.ClosePrice*float64(count)

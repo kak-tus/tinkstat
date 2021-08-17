@@ -3,7 +3,6 @@ package main
 import (
 	"io/ioutil"
 	"os"
-	"time"
 
 	sdk "github.com/TinkoffCreditSystems/invest-openapi-go-sdk"
 	"github.com/goccy/go-json"
@@ -18,7 +17,10 @@ type figiIndex map[string]byHourIndex
 
 type byHourIndex map[string]byMinuteIndex
 
-type byMinuteIndex map[string]sdk.Candle
+type byMinuteIndex struct {
+	Full  bool
+	Items map[string]sdk.Candle
+}
 
 type currencyIndex map[string]string
 
@@ -43,82 +45,28 @@ func (pr *processor) loadCache() {
 	pr.cache = newCache
 }
 
-func (pr *processor) getCandle(figi string, date time.Time) sdk.Candle {
-	date = date.Truncate(time.Minute)
-
-	for date.After(date.AddDate(0, 0, -7)) {
-		pr.updateCandleCache(figi, date)
-
-		hourIdx, ok := pr.cache.FIGIIndex[figi]
-		if !ok {
-			panic("no figi cache found")
-		}
-
-		minuteIdx, ok := hourIdx[date.UTC().Truncate(time.Hour).Format(time.RFC3339)]
-		if !ok {
-			panic("no hour cache found")
-		}
-
-		candle, ok := minuteIdx[date.UTC().Format(time.RFC3339)]
-		if !ok {
-			date = date.Add(-time.Minute)
-			continue
-		}
-
-		return candle
-	}
-
-	panic("no cache found")
-}
-
-func (pr *processor) updateCandleCache(figi string, date time.Time) {
-	hourKey := date.UTC().Truncate(time.Hour).Format(time.RFC3339)
-
-	if hourIdx, ok := pr.cache.FIGIIndex[figi]; ok {
-		if _, ok := hourIdx[hourKey]; ok {
-			return
-		}
-	} else {
-		pr.cache.FIGIIndex[figi] = make(byHourIndex)
-	}
-
-	pr.cache.FIGIIndex[figi][hourKey] = make(byMinuteIndex)
-
-	from := date.Truncate(time.Hour)
-	to := from.Add(time.Hour)
-
-	candles, err := pr.client.Candles(pr.ctx, from, to, sdk.CandleInterval1Min, figi)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, candle := range candles {
-		pr.cache.FIGIIndex[figi][hourKey][candle.TS.UTC().Format(time.RFC3339)] = candle
-	}
-
-	pr.saveCache()
-}
-
-func (pr *processor) updateCurrencyCache(currency string, date time.Time) {
-	if _, ok := pr.cache.CurrencyIndex[currency]; ok {
-		return
-	}
-
-	currencies, err := pr.client.Currencies(pr.ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, curr := range currencies {
-		ticker := curr.Ticker[0:3]
-		pr.cache.CurrencyIndex[ticker] = curr.FIGI
-	}
-
-	pr.saveCache()
-}
-
 func (pr *processor) saveCache() {
-	encoded, err := json.Marshal(pr.cache)
+	idx := make(figiIndex)
+
+	for figi := range pr.cache.FIGIIndex {
+		idx[figi] = make(byHourIndex)
+
+		for hourKey := range pr.cache.FIGIIndex[figi] {
+			if !pr.cache.FIGIIndex[figi][hourKey].Full {
+				// Don't save not full hour to cache
+				continue
+			}
+
+			idx[figi][hourKey] = pr.cache.FIGIIndex[figi][hourKey]
+		}
+	}
+
+	toSave := cache{
+		CurrencyIndex: pr.cache.CurrencyIndex,
+		FIGIIndex:     idx,
+	}
+
+	encoded, err := json.Marshal(toSave)
 	if err != nil {
 		panic(err)
 	}
@@ -126,17 +74,4 @@ func (pr *processor) saveCache() {
 	if err := ioutil.WriteFile(pr.cacheFile, encoded, 0644); err != nil {
 		panic(err)
 	}
-}
-
-func (pr *processor) getCurrencyCandle(currency string, date time.Time) sdk.Candle {
-	date = date.Truncate(time.Minute)
-
-	pr.updateCurrencyCache(currency, date)
-
-	figi, ok := pr.cache.CurrencyIndex[currency]
-	if !ok {
-		panic("no currency cache found")
-	}
-
-	return pr.getCandle(figi, date)
 }
