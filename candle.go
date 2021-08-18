@@ -4,6 +4,7 @@ import (
 	"time"
 
 	sdk "github.com/TinkoffCreditSystems/invest-openapi-go-sdk"
+	"github.com/ssgreg/repeat"
 )
 
 func (pr *processor) searchCandle(figi string, date time.Time) sdk.Candle {
@@ -110,7 +111,23 @@ func (pr *processor) fetchCandles(figi string, date time.Time) ([]sdk.Candle, bo
 		full = true
 	}
 
-	candles, err := pr.client.Candles(pr.ctx, from, to, sdk.CandleInterval1Min, figi)
+	var candles []sdk.Candle
+
+	err := repeat.Repeat(
+		repeat.Fn(func() error {
+			var err error
+
+			candles, err = pr.client.Candles(pr.ctx, from, to, sdk.CandleInterval1Min, figi)
+			if err != nil {
+				return repeat.HintTemporary(err)
+			}
+
+			return nil
+		}),
+		repeat.StopOnSuccess(),
+		repeat.LimitMaxTries(10),
+		repeat.WithDelay(repeat.FixedBackoff(5*time.Second).Set()),
+	)
 	if err != nil {
 		panic(err)
 	}
