@@ -38,7 +38,7 @@ func newProcessor(opts processorOptions) *processor {
 	return pr
 }
 
-func (pr *processor) process(from, to time.Time, ticker string) {
+func (pr *processor) balance(from, to time.Time, ticker string) {
 	operations, err := pr.client.Operations(pr.ctx, sdk.DefaultAccount, from, to, "")
 	if err != nil {
 		panic(err)

@@ -1,47 +1,93 @@
 package main
 
 import (
-	"flag"
+	"os"
 	"time"
+
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	token := flag.String("token", "", "token")
-	fromRaw := flag.String("from", "", "from time 2021-01-01 or 2021-01-01 11:00:00")
-	toRaw := flag.String("to", "", "optional to time 2021-01-01 or 2021-01-01 11:00:00")
-	ticker := flag.String("ticker", "", "ticker")
-	cacheFile := flag.String("cache", "", "cache file")
-
-	flag.Parse()
-
-	opts := processorOptions{
-		cacheFile: *cacheFile,
-		token:     *token,
+	flags := []cli.Flag{
+		&cli.StringFlag{
+			Name:     "token",
+			Required: true,
+			Usage:    "token",
+		},
+		&cli.TimestampFlag{
+			Layout:   "2006-01-02",
+			Name:     "from",
+			Required: true,
+			Usage:    "from time",
+		},
+		&cli.TimestampFlag{
+			Layout: "2006-01-02",
+			Name:   "to",
+			Usage:  "to time",
+			Value:  cli.NewTimestamp(time.Now()),
+		},
+		&cli.StringFlag{
+			Name:     "ticker",
+			Required: true,
+			Usage:    "ticker",
+		},
+		&cli.PathFlag{
+			Name:     "cache",
+			Required: true,
+			Usage:    "cache file",
+		},
 	}
 
-	pr := newProcessor(opts)
+	balance := func(c *cli.Context) error {
+		opts := processorOptions{
+			cacheFile: c.Path("cache"),
+			token:     c.String("token"),
+		}
 
-	from := parseTime(*fromRaw)
+		pr := newProcessor(opts)
 
-	to := time.Now()
+		from := c.Timestamp("from").Local()
+		to := c.Timestamp("to").Local()
 
-	if *toRaw != "" {
-		to = parseTime(*toRaw)
+		pr.balance(from, to, c.String("ticker"))
+
+		return nil
 	}
 
-	pr.process(from, to, *ticker)
-}
+	stat := func(c *cli.Context) error {
+		opts := processorOptions{
+			cacheFile: c.Path("cache"),
+			token:     c.String("token"),
+		}
 
-func parseTime(date string) time.Time {
-	parsed, err := time.Parse("2006-01-02", date)
-	if err == nil {
-		return parsed
+		pr := newProcessor(opts)
+
+		from := c.Timestamp("from").Local()
+		to := c.Timestamp("to").Local()
+
+		return pr.stat(from, to, c.String("ticker"))
 	}
 
-	parsed, err = time.Parse("2006-01-02 15:04:05", date)
-	if err == nil {
-		return parsed
+	commands := []*cli.Command{
+		{
+			Name:   "balance",
+			Action: balance,
+		},
+		{
+			Name:   "stat",
+			Action: stat,
+		},
 	}
 
-	panic(err)
+	app := &cli.App{
+		Commands: commands,
+		Flags:    flags,
+		Name:     "tinkstat",
+		Usage:    "Get stat from tinkoff API",
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		panic(err)
+	}
 }

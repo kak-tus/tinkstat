@@ -55,6 +55,10 @@ func (pr *processor) searchCandle(figi string, date time.Time) sdk.Candle {
 }
 
 func (pr *processor) needFetchCandle(figi string, date time.Time) bool {
+	if date.After(time.Now()) {
+		return false
+	}
+
 	hourIdx, ok := pr.cache.FIGIIndex[figi]
 	if !ok {
 		return true
