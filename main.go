@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"time"
 
@@ -15,15 +16,15 @@ func main() {
 			Usage:    "token",
 		},
 		&cli.TimestampFlag{
-			Layout:   "2006-01-02",
+			Layout:   "2006-01-02 15:04",
 			Name:     "from",
 			Required: true,
-			Usage:    "from time",
+			Usage:    "from time (parsed in local timezone)",
 		},
 		&cli.TimestampFlag{
-			Layout: "2006-01-02",
+			Layout: "2006-01-02 15:04",
 			Name:   "to",
-			Usage:  "to time",
+			Usage:  "to time (parsed in local timezone)",
 			Value:  cli.NewTimestamp(time.Now()),
 		},
 		&cli.StringFlag{
@@ -46,8 +47,17 @@ func main() {
 
 		pr := newProcessor(opts)
 
-		from := c.Timestamp("from").Local()
-		to := c.Timestamp("to").Local()
+		loc := time.Now().Location()
+
+		from := time.Date(
+			c.Timestamp("from").Year(), c.Timestamp("from").Month(), c.Timestamp("from").Day(),
+			c.Timestamp("from").Hour(), c.Timestamp("from").Minute(), 0, 0, loc,
+		)
+
+		to := time.Date(
+			c.Timestamp("to").Year(), c.Timestamp("to").Month(), c.Timestamp("to").Day(),
+			c.Timestamp("to").Hour(), c.Timestamp("to").Minute(), 0, 0, loc,
+		)
 
 		pr.balance(from, to, c.String("ticker"))
 
@@ -62,8 +72,17 @@ func main() {
 
 		pr := newProcessor(opts)
 
-		from := c.Timestamp("from").Local()
-		to := c.Timestamp("to").Local()
+		loc := time.Now().Location()
+
+		from := time.Date(
+			c.Timestamp("from").Year(), c.Timestamp("from").Month(), c.Timestamp("from").Day(),
+			c.Timestamp("from").Hour(), c.Timestamp("from").Minute(), 0, 0, loc,
+		)
+
+		to := time.Date(
+			c.Timestamp("to").Year(), c.Timestamp("to").Month(), c.Timestamp("to").Day(),
+			c.Timestamp("to").Hour(), c.Timestamp("to").Minute(), 0, 0, loc,
+		)
 
 		return pr.stat(from, to, c.String("ticker"))
 	}
@@ -88,6 +107,6 @@ func main() {
 
 	err := app.Run(os.Args)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }

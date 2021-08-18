@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+	"strings"
 	"time"
 
 	sdk "github.com/TinkoffCreditSystems/invest-openapi-go-sdk"
@@ -14,38 +16,7 @@ func (pr *processor) searchCandle(figi string, date time.Time) sdk.Candle {
 
 	for date.After(dateLimit) {
 		candle, ok := pr.getCandle(figi, date)
-		if !ok {
-			if pr.needFetchCandle(figi, date) {
-				candles, full := pr.fetchCandles(figi, date)
-
-				_, ok := pr.cache.FIGIIndex[figi]
-				if !ok {
-					pr.cache.FIGIIndex[figi] = make(byHourIndex)
-				}
-
-				hourKey := date.UTC().Truncate(time.Hour).Format(time.RFC3339)
-
-				_, ok = pr.cache.FIGIIndex[figi][hourKey]
-				if !ok {
-					pr.cache.FIGIIndex[figi][hourKey] = byMinuteIndex{
-						Full:  full,
-						Items: make(map[string]sdk.Candle),
-					}
-				}
-
-				for _, candle := range candles {
-					minuteKey := candle.TS.UTC().Truncate(time.Minute).Format(time.RFC3339)
-
-					pr.cache.FIGIIndex[figi][hourKey].Items[minuteKey] = candle
-				}
-
-				pr.saveCache()
-
-				candle, _ = pr.getCandle(figi, date)
-			}
-		}
-
-		if candle.FIGI != "" {
+		if ok {
 			return candle
 		}
 
@@ -68,11 +39,81 @@ func (pr *processor) needFetchCandle(figi string, date time.Time) bool {
 	hourKey := date.UTC().Truncate(time.Hour).Format(time.RFC3339)
 
 	_, ok = hourIdx[hourKey]
+	if !ok {
+		return true
+	}
 
-	return !ok
+	return false
 }
 
 func (pr *processor) getCandle(figi string, date time.Time) (sdk.Candle, bool) {
+	candle, ok := pr.getCandleFromCache(figi, date)
+	if ok {
+		return candle, ok
+	}
+
+	if !pr.needFetchCandle(figi, date) {
+		return sdk.Candle{}, false
+	}
+
+	from := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	to := from.AddDate(0, 0, 1)
+
+	fullLimit := time.Now()
+
+	candles := pr.fetchCandles(figi, from, to)
+
+	_, ok = pr.cache.FIGIIndex[figi]
+	if !ok {
+		pr.cache.FIGIIndex[figi] = make(byHourIndex)
+	}
+
+	for from.Before(to) {
+		hourKey := from.UTC().Format(time.RFC3339)
+
+		var full bool
+		if from.Add(time.Hour).Before(fullLimit) {
+			full = true
+		}
+
+		_, ok = pr.cache.FIGIIndex[figi][hourKey]
+		if !ok {
+			pr.cache.FIGIIndex[figi][hourKey] = byMinuteIndex{
+				Full:  full,
+				Items: make(map[string]sdk.Candle),
+			}
+		}
+
+		from = from.Add(time.Hour)
+	}
+
+	for _, candle := range candles {
+		hourKey := candle.TS.UTC().Truncate(time.Hour).Format(time.RFC3339)
+
+		var full bool
+		if candle.TS.UTC().Truncate(time.Hour).Add(time.Hour).Before(fullLimit) {
+			full = true
+		}
+
+		_, ok = pr.cache.FIGIIndex[figi][hourKey]
+		if !ok {
+			pr.cache.FIGIIndex[figi][hourKey] = byMinuteIndex{
+				Full:  full,
+				Items: make(map[string]sdk.Candle),
+			}
+		}
+
+		minuteKey := candle.TS.UTC().Truncate(time.Minute).Format(time.RFC3339)
+
+		pr.cache.FIGIIndex[figi][hourKey].Items[minuteKey] = candle
+	}
+
+	pr.saveCache()
+
+	return pr.getCandleFromCache(figi, date)
+}
+
+func (pr *processor) getCandleFromCache(figi string, date time.Time) (sdk.Candle, bool) {
 	hourIdx, ok := pr.cache.FIGIIndex[figi]
 	if !ok {
 		return sdk.Candle{}, false
@@ -89,28 +130,13 @@ func (pr *processor) getCandle(figi string, date time.Time) (sdk.Candle, bool) {
 
 	candle, ok := minuteIdx.Items[minuteKey]
 	if !ok {
-		if minuteIdx.Full {
-			// We have full hour index, so no candle for this minute anyway
-			// Return ok but empty candle
-			return sdk.Candle{}, true
-		} else {
-			return sdk.Candle{}, false
-		}
+		return sdk.Candle{}, false
 	}
 
 	return candle, true
 }
 
-func (pr *processor) fetchCandles(figi string, date time.Time) ([]sdk.Candle, bool) {
-	from := date.Truncate(time.Hour)
-	to := from.Add(time.Hour)
-
-	full := false
-
-	if time.Now().After(to) {
-		full = true
-	}
-
+func (pr *processor) fetchCandles(figi string, from, to time.Time) []sdk.Candle {
 	var candles []sdk.Candle
 
 	err := repeat.Repeat(
@@ -118,7 +144,9 @@ func (pr *processor) fetchCandles(figi string, date time.Time) ([]sdk.Candle, bo
 			var err error
 
 			candles, err = pr.client.Candles(pr.ctx, from, to, sdk.CandleInterval1Min, figi)
-			if err != nil {
+			// No correct way now to check
+			if err != nil && strings.Contains(err.Error(), "code=429") {
+				log.Println(err)
 				return repeat.HintTemporary(err)
 			}
 
@@ -126,13 +154,13 @@ func (pr *processor) fetchCandles(figi string, date time.Time) ([]sdk.Candle, bo
 		}),
 		repeat.StopOnSuccess(),
 		repeat.LimitMaxTries(10),
-		repeat.WithDelay(repeat.FixedBackoff(5*time.Second).Set()),
+		repeat.WithDelay(repeat.FixedBackoff(time.Minute).Set()),
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	return candles, full
+	return candles
 }
 
 func (pr *processor) searchCurrencyCandle(currency string, date time.Time) sdk.Candle {

@@ -72,9 +72,9 @@ func (pr *processor) stat(from, to time.Time, ticker string) error {
 		points := make([]float64, 0)
 
 		for from.Before(localClose) {
-			candle := pr.searchCandle(figi, from)
+			candle, ok := pr.getCandle(figi, from)
 
-			if !candle.TS.Before(from) {
+			if ok {
 				labels = append(labels, candle.TS.Unix()*1000)
 				points = append(points, candle.ClosePrice)
 			}
